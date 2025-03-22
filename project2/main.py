@@ -62,6 +62,7 @@ class MeanShiftTracker(Tracker):
     
     def track(self, image):
         x_prev, y_prev = 0, 0
+        n_iter = 0
         for i in range(20):
             patch, mask = get_patch(image, self.position, self.size)
 
@@ -70,10 +71,10 @@ class MeanShiftTracker(Tracker):
 
             q = self.q
             p = extract_histogram(patch, self.parameters.n_bins, self.kernel).astype(np.float64)
-            p /= np.sum(p)        
             
             if self.parameters.correction:
                 q, p = self._bg_correction(self.q, p)
+            p /= np.sum(p)        
 
 
             # Compute weights
@@ -98,6 +99,8 @@ class MeanShiftTracker(Tracker):
             x_tl = int(x_pos - self.size[0] / 2)
             y_tl = int(y_pos - self.size[1] / 2)
             
+            n_iter = i
+            
             # If we move for less than a pixel
             if (x_prev - x_pos) ** 2 + (y_prev - y_pos) ** 2 < self.convergence_criteria:
                 # print(f"{i} iterations")
@@ -107,14 +110,14 @@ class MeanShiftTracker(Tracker):
             y_prev = y_pos
             
         self.template = get_patch(image, self.position, self.size)
-        return (x_tl, y_tl, self.size[0], self.size[1])
+        return (x_tl, y_tl, self.size[0], self.size[1]), n_iter
 
     
 class MSParams():
     def __init__(self):
         self.convergence_criteria = 1
-        self.eps = 1e-3
+        self.eps = 1e-5
         self.resize = True
         self.size = 50
         self.correction = False
-        self.n_bins = 8
+        self.n_bins = 16

@@ -6,32 +6,65 @@ from sequence_utils import VOTSequence
 from ncc_tracker_example import NCCTracker, NCCParams
 from main import MeanShiftTracker, MSParams
 import matplotlib.pyplot as plt
-import os
+import numpy as np
+
+
+def compute_iou(box1, box2):
+    # box = (x_tl, y_tl, width, height)
+    
+    # Coordinates of the intersection box
+    x1_inter = max(box1[0], box2[0])
+    y1_inter = max(box1[1], box2[1])
+    x2_inter = min(box1[0] + box1[2], box2[0] + box2[2])
+    y2_inter = min(box1[1] + box1[3], box2[1] + box2[3])
+    
+    # If there's no intersection
+    if x1_inter >= x2_inter or y1_inter >= y2_inter:
+        return 0.0
+    
+    # Area of intersection
+    inter_area = (x2_inter - x1_inter) * (y2_inter - y1_inter)
+    
+    # Area of both bounding boxes
+    box1_area = box1[2] * box1[3]
+    box2_area = box2[2] * box2[3]
+    
+    # Area of union
+    union_area = box1_area + box2_area - inter_area
+    
+    # IoU
+    iou = inter_area / union_area
+    return iou
 
 # set the path to directory where you have the sequences
 dataset_path = 'data/' # TODO: set to the dataet path on your disk
-sequence = 'helicopter'  # choose the sequence you want to test
+sequence_ = 'basketball'  # choose the sequence you want to test
 total_fails = 0
-for sequence in ["woman", "tunnel"]:#os.listdir(dataset_path)[:10]:
-    if ".zip" in sequence:
-        continue
-    # visualization and setup parameters
-    win_name = 'Tracking window'
-    reinitialize = True
-    show_gt = True
-    video_delay = 15
-    font = cv2.FONT_HERSHEY_PLAIN
+# visualization and setup parameters
+win_name = 'Tracking window'
+reinitialize = True
+show_gt = True
+video_delay = 10
+font = cv2.FONT_HERSHEY_PLAIN
 
-    # create sequence object
-    sequence = VOTSequence(dataset_path, sequence)
+# create sequence object
+# create parameters and tracker objects
+# parameters = NCCParams()
+# tracker = NCCTracker(parameters)
+parameters = MSParams()
+
+hist_bins = [4, 8, 16, 32]
+
+res = {}
+
+for n_bins in hist_bins:
+    sequence = VOTSequence(dataset_path, sequence_)
     init_frame = 0
     n_failures = 0
-    # create parameters and tracker objects
-    # parameters = NCCParams()
-    # tracker = NCCTracker(parameters)
-    parameters = MSParams()
+    iters = []
+    ious = []
+    parameters.n_bins = n_bins
     tracker = MeanShiftTracker(parameters)
-
     time_all = 0
 
     # initialize visualization window
@@ -47,16 +80,20 @@ for sequence in ["woman", "tunnel"]:#os.listdir(dataset_path)[:10]:
             tracker.initialize(img, sequence.get_annotation(frame_idx, type='rectangle'))
             time_all += time.time() - t_
             predicted_bbox = sequence.get_annotation(frame_idx, type='rectangle')
+            
         else:
             # track on current frame - predict bounding box
             t_ = time.time()
-            predicted_bbox, _ = tracker.track(img)
+            predicted_bbox, n_iter = tracker.track(img)
             time_all += time.time() - t_
+            iters.append(n_iter)
+            
 
         # calculate overlap (needed to determine failure of a tracker)
         gt_bb = sequence.get_annotation(frame_idx, type='rectangle')
         o = sequence.overlap(predicted_bbox, gt_bb)
 
+        ious.append(compute_iou(predicted_bbox, gt_bb))
         # draw ground-truth and predicted bounding boxes, frame numbers and show image
         if show_gt:
             sequence.draw_region(img, gt_bb, (0, 255, 0), 1)
@@ -75,7 +112,9 @@ for sequence in ["woman", "tunnel"]:#os.listdir(dataset_path)[:10]:
             init_frame = frame_idx
             n_failures += 1
 
+    res[n_bins] = (n_failures, (sequence.length() / time_all), np.mean(n_iter), np.mean(ious))
     print('Tracking speed: %.1f FPS' % (sequence.length() / time_all))
     print('Tracker failed %d times' % n_failures)
+    print("Mean IOU: ", np.mean(ious))
     total_fails += n_failures
-print("Total fails: ", total_fails)
+print(res)

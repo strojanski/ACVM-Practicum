@@ -53,6 +53,7 @@ def create_epanechnik_kernel(width, height, sigma):
     return kernel
 
 def extract_histogram(patch, nbins, weights=None):
+
     # Note: input patch must be a BGR image (3 channel numpy array)
     # convert each pixel intensity to the one of nbins bins
     channel_bin_idxs = np.floor((patch.astype(np.float32) / float(255)) * float(nbins - 1))
@@ -61,7 +62,11 @@ def extract_histogram(patch, nbins, weights=None):
 
     # count bin indices to create histogram (use per-pixel weights if given)
     if weights is not None:
-        histogram_ = np.bincount(bin_idxs.flatten(), weights=weights.flatten())
+        try:
+            weights = weights[:bin_idxs.shape[0], :bin_idxs.shape[1]]
+            histogram_ = np.bincount(bin_idxs.flatten(), weights=weights.flatten())
+        except:
+            histogram_ = np.bincount(bin_idxs.flatten())
     else:
         histogram_ = np.bincount(bin_idxs.flatten())
     # zero-pad histogram (needed since bincount function does not generate histogram with nbins**3 elements)

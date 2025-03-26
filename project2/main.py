@@ -29,7 +29,7 @@ class MeanShiftTracker(Tracker):
         self.template = image[int(top):int(bottom), int(left):int(right)]
         self.position = (region[0] + region[2] / 2, region[1] + region[3] / 2)
         self.size = (np.floor(region[2]), np.floor(region[3]))
-        self.kernel = create_epanechnik_kernel(self.size[0], self.size[1], 3)
+        self.kernel = create_epanechnik_kernel(self.size[0], self.size[1], self.parameters.sigma)
         
         self.q = extract_histogram(self.template, self.parameters.n_bins, self.kernel).astype(np.float64)
         self.q /= sum(self.q)
@@ -48,16 +48,24 @@ class MeanShiftTracker(Tracker):
 
         self.eps = self.parameters.eps
     
-    def _bg_correction(self, q, p):            
+    def _bg_correction(self, patch, q, p):            
         cu = np.argsort(p)
         cu = [c for c in cu if p[c] != 0]  
-        cu = cu[0] if len(cu) > 0 else 0  
+        cu = cu[0] if len(cu) > 0 else 1
         
-        cu = min(p[cu], 1)  
+        cu = np.array([min(p[cu], 1)] * len(p)) / (p + self.eps * np.ones_like(p))
+        # print(cu.shape, p.shape)
+        cu = cu.clip(1e-4, 1)
         
+        # plt.bar(np.arange(len(p)), p, color="blue")
+                
         p = cu * p
         q = cu * q
-        # q /= np.sum(q)
+        q /= np.sum(q)
+        # plt.bar(np.arange(len(p)), p, color="red")
+        # plt.ylim(0, 1)
+        # plt.show()
+        
         return q, p
     
     def track(self, image):
@@ -72,19 +80,29 @@ class MeanShiftTracker(Tracker):
             q = self.q
             p = extract_histogram(patch, self.parameters.n_bins, self.kernel).astype(np.float64)
             
+            # p /= np.sum(p)
             if self.parameters.correction:
-                q, p = self._bg_correction(self.q, p)
+                bg_patch, _ = get_patch(image, self.position, (self.size[0] * 2, self.size[1]*2))
+                # Compute the position of the original patch within the background patch
+                bg_h, bg_w = bg_patch.shape[:2]
+                orig_h, orig_w = patch.shape[:2]
+                start_x = (bg_w - orig_w) // 2
+                start_y = (bg_h - orig_h) // 2
+
+                # Set the pixels of the original patch area to zero
+                bg_patch[start_y:start_y + orig_h, start_x:start_x + orig_w] = 0
+                q, p = self._bg_correction(bg_patch, self.q, p)
             p /= np.sum(p)        
 
 
             # Compute weights
-            V = np.sqrt(q / (p + self.eps))
+            V = np.sqrt(q / (p + self.eps * np.ones_like(p)))
             
             # Backproject
             W = backproject_histogram(patch, V, self.parameters.n_bins)
             if np.any(np.isnan(W)):
                 print("Warning: NaN values found in weights, skipping iteration.")
-                continue  # Skip this iteration or handle the NaN case
+                continue 
 
             # Compute movement vectors
             denom = np.sum(W)
@@ -92,7 +110,7 @@ class MeanShiftTracker(Tracker):
                 denom = 1
             x_pos = (np.sum(self.X * W) / denom) + self.position[0]
             y_pos = (np.sum(self.Y * W) / denom) + self.position[1] 
-            
+            # print((np.sum(self.X * W) / denom), (np.sum(self.Y * W) / denom))
             self.position = (x_pos, y_pos)
             
             # Compute top-left corner of bounding box
@@ -109,15 +127,23 @@ class MeanShiftTracker(Tracker):
             x_prev = x_pos
             y_prev = y_pos
             
-        self.template = get_patch(image, self.position, self.size)
+        self.template, _ = get_patch(image, self.position, self.size)
+        
+        q_tilda = extract_histogram(self.template, self.parameters.n_bins, self.kernel)
+        q_tilda /= np.sum(q_tilda)
+        
+        self.q = (1 - self.parameters.alpha) * self.q + self.parameters.alpha * q_tilda
+        
         return (x_tl, y_tl, self.size[0], self.size[1]), n_iter
 
     
 class MSParams():
     def __init__(self):
         self.convergence_criteria = 1
-        self.eps = 1e-5
+        self.eps = 1e-4
         self.resize = True
         self.size = 50
-        self.correction = False
+        self.correction = True
         self.n_bins = 16
+        self.alpha = 1e-2
+        self.sigma = 2

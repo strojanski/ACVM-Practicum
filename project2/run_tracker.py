@@ -6,20 +6,24 @@ from sequence_utils import VOTSequence
 from ncc_tracker_example import NCCTracker, NCCParams
 from main import MeanShiftTracker, MSParams
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 
 # set the path to directory where you have the sequences
 dataset_path = 'data/' # TODO: set to the dataet path on your disk
 sequence = 'helicopter'  # choose the sequence you want to test
 total_fails = 0
-for sequence in ["woman", "tunnel"]:#os.listdir(dataset_path)[:10]:
+fps = []
+
+# for sequence in os.listdir(dataset_path):    
+for sequence in ["sunshade", "fish2", "ball", "fish1" , "woman", "basketball"]:#os.listdir(dataset_path)[:10]:
     if ".zip" in sequence:
         continue
     # visualization and setup parameters
     win_name = 'Tracking window'
     reinitialize = True
     show_gt = True
-    video_delay = 15
+    video_delay = 100
     font = cv2.FONT_HERSHEY_PLAIN
 
     # create sequence object
@@ -74,8 +78,10 @@ for sequence in ["woman", "tunnel"]:#os.listdir(dataset_path)[:10]:
             frame_idx += 5
             init_frame = frame_idx
             n_failures += 1
-
+            
+    fps.append(sequence.length() / time_all)
     print('Tracking speed: %.1f FPS' % (sequence.length() / time_all))
     print('Tracker failed %d times' % n_failures)
     total_fails += n_failures
+print(np.mean(fps))
 print("Total fails: ", total_fails)

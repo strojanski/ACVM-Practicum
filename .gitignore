@@ -174,3 +174,7 @@ project2/data/*
 
 # PyPI configuration file
 .pypirc
+*.jpg
+*.label
+*.txt
+

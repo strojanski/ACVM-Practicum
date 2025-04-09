@@ -178,3 +178,5 @@ project2/data/*
 *.label
 *.txt
 
+* .json
+*.jpg

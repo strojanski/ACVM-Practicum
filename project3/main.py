@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 
 from sequence_utils import VOTSequence
 from ex3_utils import create_gauss_peak, create_cosine_window, gausssmooth
+import os 
+import time 
 
 data_path = "vot2013/"
 
@@ -38,9 +40,12 @@ def show_img(img):
     plt.show()
 
 class CorrelationFilter:
-    def __init__(self, alpha, lmbd=0.01):
-        self.alpha = alpha  # Update rate (0.01-0.1 works well)
-        self.lmbd = lmbd    # Regularization term
+    def __init__(self, alpha=0.1, lmbd=1e-4):
+        self.alpha = alpha  
+        self.lmbd = lmbd    
+        
+    def name(self):
+        return "CorrelationFilter"
 
     def initialize(self, image, bbox):
         
@@ -69,7 +74,6 @@ class CorrelationFilter:
         self.G, self.cosine = init(self.target_size, gauss_sigma=np.sqrt(2))
         F = center_on_target(frame, self.bbox)
         F = self.cosine * F
-        F /= 255.0
         
         self.G_hat = np.fft.fft2(self.G)#[:-1, :-1]
         
@@ -124,10 +128,11 @@ class CorrelationFilter:
         H_new_hat_conj = (self.G_hat * F_new_hat_conj) / (F_new_hat * F_new_hat_conj + self.lmbd)
         self.H_hat_conj = (1 - self.alpha) * self.H_hat_conj + self.alpha * H_new_hat_conj
         self.H_hat_conj /= np.max(np.abs(self.H_hat_conj))  
-        self.H_hat_conj = self.H_hat_conj.real
+        self.H_hat_conj = self.H_hat_conj
 
         return self.bbox
         
+
         
 if __name__ == "__main__":
     pass        

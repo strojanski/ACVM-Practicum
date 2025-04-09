@@ -20,3 +20,9 @@ def create_gauss_peak(target_size, sigma):
     G = np.exp(-X**2 / (2 * sigma**2) - Y**2 / (2 * sigma**2))
     G = np.roll(G, (-h2, -w2), (0, 1))
     return G
+
+def gausssmooth(img, sigma):
+    x = np.array(list(range(math.floor(-3.0 * sigma + 0.5), math.floor(3.0 * sigma + 0.5) + 1)))
+    G = np.exp(-x**2 / (2 * sigma**2))
+    G = G / np.sum(G)
+    return cv2.sepFilter2D(img, -1, G, G)

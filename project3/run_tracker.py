@@ -3,27 +3,26 @@ import time
 import cv2
 
 from sequence_utils import VOTSequence
-from ncc_tracker_example import NCCTracker, NCCParams
-from main import MeanShiftTracker, MSParams
+from main import CorrelationFilter
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 
 # set the path to directory where you have the sequences
-dataset_path = 'data/' # TODO: set to the dataet path on your disk
-sequence = 'helicopter'  # choose the sequence you want to test
+dataset_path = 'vot2013/' # TODO: set to the dataet path on your disk
+sequence = 'car'  # choose the sequence you want to test
 total_fails = 0
 fps = []
 
 # for sequence in os.listdir(dataset_path):    
-for sequence in ["sunshade", "fish2", "ball", "fish1" , "woman", "basketball"]:#os.listdir(dataset_path)[:10]:
-    if ".zip" in sequence:
+for sequence in os.listdir(dataset_path):#[:10]:
+    if ".zip" in sequence or ".txt" in sequence:
         continue
     # visualization and setup parameters
     win_name = 'Tracking window'
     reinitialize = True
     show_gt = True
-    video_delay = 100
+    video_delay = 1
     font = cv2.FONT_HERSHEY_PLAIN
 
     # create sequence object
@@ -31,15 +30,14 @@ for sequence in ["sunshade", "fish2", "ball", "fish1" , "woman", "basketball"]:#
     init_frame = 0
     n_failures = 0
     # create parameters and tracker objects
-    # parameters = NCCParams()
-    # tracker = NCCTracker(parameters)
-    parameters = MSParams()
-    tracker = MeanShiftTracker(parameters)
 
+    tracker = CorrelationFilter(alpha=0.1, lmbd=1e-4)
+    # tracker = CorrelationFilter(alpha=0.05, lmbd=.1)
+    
     time_all = 0
 
     # initialize visualization window
-    sequence.initialize_window(win_name)
+    # sequence.initialize_window(win_name)
     # tracking loop - goes over all frames in the video sequence
     frame_idx = 0
     while frame_idx < sequence.length():
@@ -54,7 +52,7 @@ for sequence in ["sunshade", "fish2", "ball", "fish1" , "woman", "basketball"]:#
         else:
             # track on current frame - predict bounding box
             t_ = time.time()
-            predicted_bbox, _ = tracker.track(img)
+            predicted_bbox = tracker.track(img)
             time_all += time.time() - t_
 
         # calculate overlap (needed to determine failure of a tracker)
@@ -62,12 +60,12 @@ for sequence in ["sunshade", "fish2", "ball", "fish1" , "woman", "basketball"]:#
         o = sequence.overlap(predicted_bbox, gt_bb)
 
         # draw ground-truth and predicted bounding boxes, frame numbers and show image
-        if show_gt:
-            sequence.draw_region(img, gt_bb, (0, 255, 0), 1)
-        sequence.draw_region(img, predicted_bbox, (0, 0, 255), 2)
-        sequence.draw_text(img, '%d/%d' % (frame_idx + 1, sequence.length()), (25, 25))
-        sequence.draw_text(img, 'Fails: %d' % n_failures, (25, 55))
-        sequence.show_image(img, video_delay)
+        # if show_gt:
+        #     sequence.draw_region(img, gt_bb, (0, 255, 0), 1)
+        # sequence.draw_region(img, predicted_bbox, (0, 0, 255), 2)
+        # sequence.draw_text(img, '%d/%d' % (frame_idx + 1, sequence.length()), (25, 25))
+        # sequence.draw_text(img, 'Fails: %d' % n_failures, (25, 55))
+        # sequence.show_image(img, video_delay)
         # time.sleep(1)
 
         if o > 0 or not reinitialize:

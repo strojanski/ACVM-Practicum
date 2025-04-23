@@ -3,7 +3,10 @@ import cv2
 import math
 import matplotlib.pyplot as plt
 
-from ex4_utils import kalman_step, gaussian_prob
+from ex4_utils import kalman_step, gaussian_prob, sample_gauss
+from ex2_utils import extract_histogram, create_epanechnik_kernel, get_patch
+
+np.random.seed(0)
 
 def run_kalman_rw(x, y, q, r):
     state = np.array([x[0], y[0]], dtype=np.float32)
@@ -44,11 +47,11 @@ def run_kalman_ncv(x, y, q, r):
     C[1, 1] = 1    
     
     Q = q * np.array([
-        [dt**3/3,        0, dt**2/2,        0],
-        [       0, dt**3/3,        0, dt**2/2],
-        [dt**2/2,        0,      dt,        0],
-        [       0, dt**2/2,        0,      dt],
-    ], dtype=float)
+            [1/3, 0,   1/2, 0],
+            [0,   1/3, 0,   1/2],
+            [1/2, 0,   1,   0],
+            [0,   1/2, 0,   1],
+        ], dtype=np.float32)
     
     F = np.zeros((4, 4), dtype=np.float32)
     F[0, 2] = 1
@@ -77,9 +80,6 @@ def run_kalman_ncv(x, y, q, r):
         
     return sx, sy
 
-
-import numpy as np
-from ex4_utils import kalman_step
 
 def run_kalman_nca(x, y, q=0.1, r=1.0):
     """
@@ -133,7 +133,111 @@ def run_kalman_nca(x, y, q=0.1, r=1.0):
         sy.append(float(state[1]))
 
     return np.array(sx), np.array(sy)
+class Tracker():
+    def __init__(self, params):
+        self.parameters = params
 
+    def initialize(self, image, region):
+        raise NotImplementedError
+
+    def track(self, image):
+        raise NotImplementedError
+
+class ParticleFilter(Tracker):
+    def __init__(self, n_particles, alpha, q_scale=.01):
+        self.n_particles = n_particles
+        self.alpha = alpha  
+        self.particles = None  
+        self.q_scale = q_scale
+        self.weights = np.ones(n_particles, dtype=np.float32) / n_particles
+
+    def initialize(self, img, region):
+        region = np.array(region, dtype=np.int32)
+        self.x, self.y, self.w, self.h = region
+        
+        # Get visual model
+        patch, _ = get_patch(img, (self.x, self.y), (self.w, self.h)) 
+        self.kernel = create_epanechnik_kernel(self.w, self.h, 2)
+        self.visual_model = extract_histogram(patch, 16, weights=self.kernel)
+        
+        self.q = self.q_scale * np.minimum(self.w, self.h)
+
+        self.Q = self.q * np.array([
+            [1/3, 0,   1/2, 0],
+            [0,   1/3, 0,   1/2],
+            [1/2, 0,   1,   0],
+            [0,   1/2, 0,   1],
+        ], dtype=np.float32)
+        
+        
+        self.A = np.array([
+            [1, 0, 1, 0],  
+            [0, 1, 0, 1],  
+            [0, 0, 1, 0],  
+            [0, 0, 0, 1],  
+        ], dtype=np.float32)
+        
+        position = [self.x + self.w/2, self.y + self.h/2]
+        mu = np.array([position[0], position[1], 0, 0], dtype=np.float32)
+        self.particles = sample_gauss(mu, self.Q, self.n_particles)
+
+    def track(self, img):
+        # 1) Replace existing particles by sampling n new particles based on weight distribution of the old particles
+        w = self.weights
+        w_norm = w / w.sum()
+        w_cumsum = np.cumsum(w_norm)
+        
+        rand_samples = np.random.rand(self.n_particles, 1)
+        sampled_idxs = np.digitize(rand_samples, w_cumsum) 
+        particles = self.particles[sampled_idxs.flatten(), :]
+
+        # 2) Move each particle using the dynamic model (also apply noise)
+        print(self.A.shape, particles.T.shape)
+        new_p = (self.A @ particles.T).T
+        noise = sample_gauss(
+            np.zeros(4, dtype=np.float32),
+            self.Q,
+            self.n_particles
+        )
+        self.particles = new_p + noise
+        
+        self.particles[:, 0] = np.clip(self.particles[:, 0], 0, img.shape[1])
+        self.particles[:, 1] = np.clip(self.particles[:, 1], 0, img.shape[0])
+
+        # 3)  Update weights of particles based on visual model similarity.
+        new_w = np.zeros(self.n_particles, dtype=np.float32)
+        for i, (cx, cy, vx, vy) in enumerate(self.particles):
+            x, y = int(cx - self.w/2), int(cy - self.h/2)
+            patch, _ = get_patch(img, (x, y), (self.w, self.h))
+            
+            hist = extract_histogram(patch, 16, weights=self.kernel)
+            
+            # Normalize histograms and add epsilon to avoid NaN
+            hist = hist / hist.sum()
+            target_hist = self.visual_model / self.visual_model.sum()
+            
+            # Compute Bhattacharyya coefficient (clipped to [0, 1])
+            dist = (1 / np.sqrt(2)) * np.sqrt(np.sum((np.sqrt(hist) - np.sqrt(target_hist))**2))
+            
+            print(dist)
+
+            new_w[i] = np.exp(-1/2 * (dist**2 /0.1**2))
+
+        self.weights = new_w / new_w.sum()
+
+        # 4) Compute new state of the object as a weighted sum of particle states. Use the normalized particle weights as weights in the sum.)
+        x = np.sum(self.particles[:, 0] * self.weights)
+        y = np.sum(self.particles[:, 1] * self.weights)
+        
+        
+        # Update visual model with the new target position
+        patch, _ = get_patch(img, (x, y), (self.w, self.h))
+        
+        hist_new = extract_histogram(patch, 16, weights=self.kernel)
+        hist_new = hist_new / hist_new.sum()
+        self.visual_model = (1 - self.alpha) * self.visual_model + self.alpha * hist_new
+
+        return (x-self.w//2, y-self.h//2, self.w, self.h), self.particles, self.weights
 
 if __name__ == "__main__":
     N = 40
@@ -156,7 +260,7 @@ if __name__ == "__main__":
             ax.plot(sx, sy, 'o-', mfc='none', color='blue', label='filtered')
             ax.set_title(f"{names[i]}: q={q}, r={r}")
             ax.set_xlim(-20, 20); ax.set_ylim(-15, 15)
-axes[0][-1].legend(loc='upper right')
-fig.tight_layout()
-plt.show()
-        
+    axes[0][-1].legend(loc='upper right')
+    fig.tight_layout()
+    plt.show()
+            

@@ -16,7 +16,7 @@ fps = []
 
 # for sequence in os.listdir(dataset_path):    
 for sequence in os.listdir(dataset_path):
-    if ".zip" in sequence:
+    if ".zip" in sequence or ".txt" in sequence:
         continue
     # visualization and setup parameters
     win_name = 'Tracking window'
@@ -32,7 +32,7 @@ for sequence in os.listdir(dataset_path):
     # create parameters and tracker objects
     # parameters = NCCParams()
     # tracker = NCCTracker(parameters)
-    tracker = ParticleFilter(alpha=1e-3, n_particles=100, q_scale=0.01)
+    tracker = ParticleFilter(alpha=1e-3, n_particles=100, q_scale=0.5)
 
     time_all = 0
 

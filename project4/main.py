@@ -156,7 +156,7 @@ class ParticleFilter(Tracker):
         self.x, self.y, self.w, self.h = region
         
         # Get visual model
-        patch, _ = get_patch(img, (self.x, self.y), (self.w, self.h)) 
+        patch, _ = get_patch(img, (self.x + self.w/2, self.y + self.h/2), (self.w, self.h)) 
         self.kernel = create_epanechnik_kernel(self.w, self.h, 2)
         self.visual_model = extract_histogram(patch, 16, weights=self.kernel)
         
@@ -177,6 +177,7 @@ class ParticleFilter(Tracker):
             [0, 0, 0, 1],  
         ], dtype=np.float32)
         
+        
         position = [self.x + self.w/2, self.y + self.h/2]
         mu = np.array([position[0], position[1], 0, 0], dtype=np.float32)
         self.particles = sample_gauss(mu, self.Q, self.n_particles)
@@ -192,7 +193,6 @@ class ParticleFilter(Tracker):
         particles = self.particles[sampled_idxs.flatten(), :]
 
         # 2) Move each particle using the dynamic model (also apply noise)
-        print(self.A.shape, particles.T.shape)
         new_p = (self.A @ particles.T).T
         noise = sample_gauss(
             np.zeros(4, dtype=np.float32),
@@ -206,10 +206,10 @@ class ParticleFilter(Tracker):
 
         # 3)  Update weights of particles based on visual model similarity.
         new_w = np.zeros(self.n_particles, dtype=np.float32)
-        for i, (cx, cy, vx, vy) in enumerate(self.particles):
-            x, y = int(cx - self.w/2), int(cy - self.h/2)
+        for i, (x, y, _, _) in enumerate(self.particles):
             patch, _ = get_patch(img, (x, y), (self.w, self.h))
-            
+            # plt.imshow(patch)
+            # plt.show()
             hist = extract_histogram(patch, 16, weights=self.kernel)
             
             # Normalize histograms and add epsilon to avoid NaN
@@ -219,7 +219,6 @@ class ParticleFilter(Tracker):
             # Compute Bhattacharyya coefficient (clipped to [0, 1])
             dist = (1 / np.sqrt(2)) * np.sqrt(np.sum((np.sqrt(hist) - np.sqrt(target_hist))**2))
             
-            print(dist)
 
             new_w[i] = np.exp(-1/2 * (dist**2 /0.1**2))
 

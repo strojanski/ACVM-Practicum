@@ -54,17 +54,12 @@ class MeanShiftTracker(Tracker):
         cu = cu[0] if len(cu) > 0 else 1
         
         cu = np.array([min(p[cu], 1)] * len(p)) / (p + self.eps * np.ones_like(p))
-        # print(cu.shape, p.shape)
         cu = cu.clip(1e-4, 1)
         
-        # plt.bar(np.arange(len(p)), p, color="blue")
                 
         p = cu * p
         q = cu * q
         q /= np.sum(q)
-        # plt.bar(np.arange(len(p)), p, color="red")
-        # plt.ylim(0, 1)
-        # plt.show()
         
         return q, p
     

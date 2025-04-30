@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 from ex4_utils import kalman_step, gaussian_prob, sample_gauss
 from ex2_utils import extract_histogram, create_epanechnik_kernel, get_patch
+from utils.tracker import Tracker
 
 np.random.seed(0)
 
@@ -89,42 +90,35 @@ def run_kalman_nca(x, y, q=0.1, r=1.0):
     r    : measurement variance
     returns: (sx, sy) filtered estimates of x,y
     """
-    dt = 1.0
-    # 1) State‐transition A (6×6)
     A = np.array([
-        [1, 0, dt,  0,  dt*dt/2,       0],
-        [0, 1,  0, dt,        0, dt*dt/2],
-        [0, 0,  1,  0,       dt,       0],
-        [0, 0,  0,  1,        0,      dt],
-        [0, 0,  0,  0,        1,       0],
-        [0, 0,  0,  0,        0,       1],
-    ], dtype=np.float32)
+        [1, 0, 1, 0, 1/2, 0],
+        [0, 1, 0, 1, 0, 1/2],
+        [0, 0, 1, 0, 1, 0],
+        [0, 0, 0, 1, 0, 1],
+        [0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 0, 1],
+        ], dtype=np.float32)
 
-    # 2) Observation C (2×6)
     C = np.zeros((2,6), dtype=np.float32)
     C[0,0] = 1
     C[1,1] = 1
 
-    # 3) Process‐noise Q (6×6), white jerk model
     Q = q * np.array([
-        [ dt**5/20,        0,  dt**4/8,        0,  dt**3/6,        0],
-        [        0,  dt**5/20,        0,  dt**4/8,        0,  dt**3/6],
-        [ dt**4/8,        0,  dt**3/3,        0,  dt**2/2,        0],
-        [        0,  dt**4/8,        0,  dt**3/3,        0,  dt**2/2],
-        [ dt**3/6,        0,  dt**2/2,        0,       dt,        0],
-        [        0,  dt**3/6,        0,  dt**2/2,        0,       dt],
-    ], dtype=np.float32)
+                [1/20, 0, 1/8, 0, 1/6, 0],
+                [0, 1/20, 0,  1/8, 0, 1/6],
+                [1/8, 0, 1/3, 0, 1/2, 0],
+                [0, 1/8, 0,  1/3,0, 1/2],
+                [1/6, 0,  1/2, 0, 1, 0],
+                [0, 1/6, 0, 1/2, 0, 1],
+            ], dtype=np.float32)
 
-    # 4) Measurement‐noise R (2×2)
     R = r * np.eye(2, dtype=np.float32)
 
-    # 5) Initial state and covariance
     state = np.zeros((6,1), dtype=np.float32)
     state[0,0] = x[0]
     state[1,0] = y[0]
     P = np.diag([100,100,10,10,1,1]).astype(np.float32)
 
-    # 6) Run filter
     sx, sy = [x[0]], [y[0]]
     for xi, yi in zip(x[1:], y[1:]):
         y_t = np.array([xi, yi], dtype=np.float32).reshape(2,1)
@@ -133,27 +127,33 @@ def run_kalman_nca(x, y, q=0.1, r=1.0):
         sy.append(float(state[1]))
 
     return np.array(sx), np.array(sy)
-class Tracker():
-    def __init__(self, params):
-        self.parameters = params
-
-    def initialize(self, image, region):
-        raise NotImplementedError
-
-    def track(self, image):
-        raise NotImplementedError
 
 class ParticleFilter(Tracker):
-    def __init__(self, n_particles, alpha, q_scale=.01):
+    def __init__(self, n_particles=100, alpha=1e-3, q_scale=.01, mmodel="ncv", color="ycrcb"):
         self.n_particles = n_particles
         self.alpha = alpha  
         self.particles = None  
+        self.mmodel = mmodel
         self.q_scale = q_scale
         self.weights = np.ones(n_particles, dtype=np.float32) / n_particles
+        self.color = color
+        
+    def name(self):
+        return f"ParticleFilter_ncv_ycrcb"
 
     def initialize(self, img, region):
         region = np.array(region, dtype=np.int32)
         self.x, self.y, self.w, self.h = region
+        
+        if self.color == "rgb":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        elif self.color == "hsv":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        elif self.color == "lab":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2Lab)
+        elif self.color == "ycrcb":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+            
         
         # Get visual model
         patch, _ = get_patch(img, (self.x + self.w/2, self.y + self.h/2), (self.w, self.h)) 
@@ -162,40 +162,79 @@ class ParticleFilter(Tracker):
         
         self.q = self.q_scale * np.minimum(self.w, self.h)
 
-        self.Q = self.q * np.array([
-            [1/3, 0,   1/2, 0],
-            [0,   1/3, 0,   1/2],
-            [1/2, 0,   1,   0],
-            [0,   1/2, 0,   1],
-        ], dtype=np.float32)
+        if self.mmodel == "rw":
+            self.A = np.eye(2, dtype=np.float32)
+            self.Q = self.q * np.eye(2, dtype=np.float32)
+            
+        elif self.mmodel == "ncv":
+            self.Q = self.q * np.array([
+                [1/3, 0,   1/2, 0],
+                [0,   1/3, 0,   1/2],
+                [1/2, 0,   1,   0],
+                [0,   1/2, 0,   1],
+            ], dtype=np.float32)
+            
+            
+            self.A = np.array([
+                [1, 0, 1, 0],  
+                [0, 1, 0, 1],  
+                [0, 0, 1, 0],  
+                [0, 0, 0, 1],  
+            ], dtype=np.float32)
         
         
-        self.A = np.array([
-            [1, 0, 1, 0],  
-            [0, 1, 0, 1],  
-            [0, 0, 1, 0],  
-            [0, 0, 0, 1],  
-        ], dtype=np.float32)
-        
-        
+        elif self.mmodel == "nca":
+            self.A = np.array([
+            [1, 0, 1, 0, 1/2, 0],
+            [0, 1, 0, 1, 0, 1/2],
+            [0, 0, 1, 0, 1, 0],
+            [0, 0, 0, 1, 0, 1],
+            [0, 0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 0, 1],
+            ], dtype=np.float32)
+
+            self.Q = self.q * np.array([
+                [1/20, 0, 1/8, 0, 1/6, 0],
+                [0, 1/20, 0,  1/8, 0, 1/6],
+                [1/8, 0, 1/3, 0, 1/2, 0],
+                [0, 1/8, 0,  1/3,0, 1/2],
+                [1/6, 0,  1/2, 0, 1, 0],
+                [0, 1/6, 0, 1/2, 0, 1],
+            ], dtype=np.float32)
+            
         position = [self.x + self.w/2, self.y + self.h/2]
-        mu = np.array([position[0], position[1], 0, 0], dtype=np.float32)
+        mu = np.zeros_like(self.A[0])
+        mu[0] = position[0]
+        mu[1] = position[1]        
+
         self.particles = sample_gauss(mu, self.Q, self.n_particles)
 
     def track(self, img):
+        if self.color == "rgb":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        elif self.color == "hsv":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        elif self.color == "lab":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2Lab)
+        elif self.color == "ycrcb":
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+            
         # 1) Replace existing particles by sampling n new particles based on weight distribution of the old particles
         w = self.weights
         w_norm = w / w.sum()
         w_cumsum = np.cumsum(w_norm)
+        w_cumsum[-1] = 1.0  # Ensure the last value is exactly 1.0
         
         rand_samples = np.random.rand(self.n_particles, 1)
-        sampled_idxs = np.digitize(rand_samples, w_cumsum) 
+        # sampled_idxs = np.digitize(rand_samples, w_cumsum)
+        sampled_idxs = np.searchsorted(w_cumsum, rand_samples.flatten())
+
         particles = self.particles[sampled_idxs.flatten(), :]
 
         # 2) Move each particle using the dynamic model (also apply noise)
         new_p = (self.A @ particles.T).T
         noise = sample_gauss(
-            np.zeros(4, dtype=np.float32),
+            np.zeros(len(self.A), dtype=np.float32),
             self.Q,
             self.n_particles
         )
@@ -206,8 +245,8 @@ class ParticleFilter(Tracker):
 
         # 3)  Update weights of particles based on visual model similarity.
         new_w = np.zeros(self.n_particles, dtype=np.float32)
-        for i, (x, y, _, _) in enumerate(self.particles):
-            patch, _ = get_patch(img, (x, y), (self.w, self.h))
+        for i, p in enumerate(self.particles):
+            patch, _ = get_patch(img, (p[0], p[1]), (self.w, self.h))
             # plt.imshow(patch)
             # plt.show()
             hist = extract_histogram(patch, 16, weights=self.kernel)
@@ -236,13 +275,23 @@ class ParticleFilter(Tracker):
         hist_new = hist_new / hist_new.sum()
         self.visual_model = (1 - self.alpha) * self.visual_model + self.alpha * hist_new
 
-        return (x-self.w//2, y-self.h//2, self.w, self.h), self.particles, self.weights
+        return (x-self.w//2, y-self.h//2, self.w, self.h)#, self.particles, self.weights
 
 if __name__ == "__main__":
     N = 40
-    v = np.linspace(5 * math.pi, 0, N)
+    v = np.linspace(16, 0, N)
     x = np.cos(v) * v
     y = np.sin(v) * v
+    
+    # x = (np.array([0, 1, 1, 0, 0, 3/4, 3/4, 1/4, 1/2]) - np.ones(9) * 1/2) * 15
+    # y = (np.array([1, 1, 0, 0, 3/4, 3/4, 1/4, 1/4, 1/2]) - np.ones(9) * 1/2) * 15
+
+    # x = v - np.mean(v)
+    # y = np.sin(v) * v# + np.random.normal(0, 2, N)
+
+    # x = v - np.mean(v)
+    # y = v**3 / 100 + v**2/10 - 2 * v - 2  
+
 
     qs = [100, 5, 1, 1, 1]
     rs = [1,   1,  1, 5, 100]

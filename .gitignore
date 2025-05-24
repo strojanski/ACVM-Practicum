@@ -180,3 +180,5 @@ project2/data/*
 
 * .json
 *.jpg
+/project5/siamfc/cmds.txt
+/project5/dataset-lt

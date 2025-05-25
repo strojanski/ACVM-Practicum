@@ -5,6 +5,7 @@ import cv2
 from tools.sequence_utils import VOTSequence
 from tools.sequence_utils import save_results
 from siamfc import TrackerSiamFC
+import numpy as np
 
 
 def evaluate_tracker(dataset_path, network_path, results_dir, visualize):
@@ -22,6 +23,8 @@ def evaluate_tracker(dataset_path, network_path, results_dir, visualize):
 
         bboxes_path = os.path.join(results_dir, '%s_bboxes.txt' % sequence_name)
         scores_path = os.path.join(results_dir, '%s_scores.txt' % sequence_name)
+        thresh_path = os.path.join(results_dir, '%s_thresh.npy' % sequence_name)
+        
 
         if os.path.exists(bboxes_path) and os.path.exists(scores_path):
             print('Results on this sequence already exists. Skipping.')
@@ -56,7 +59,8 @@ def evaluate_tracker(dataset_path, network_path, results_dir, visualize):
         
         save_results(results, bboxes_path)
         save_results(scores, scores_path)
-
+        np.save(thresh_path, np.array(tracker.thresholds))
+        # save_results(tracker.thresholds, thresh_path)
 
 parser = argparse.ArgumentParser(description='SiamFC Runner Script')
 
